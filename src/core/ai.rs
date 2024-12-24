@@ -1,4 +1,5 @@
 use std::sync::OnceLock;
+use std::time::Duration;
 use std::{collections::HashMap, env};
 
 use anyhow::{Ok, Result};
@@ -7,6 +8,7 @@ use bytes::Bytes;
 use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use tokio::time;
 use tracing::error;
 
 static CLIENT: OnceLock<Client> = OnceLock::new();
@@ -77,7 +79,35 @@ impl AiScaleUp {
                 return Err(anyhow::anyhow!(text));
             }
 
-            let resp = client.get(result.unwrap().output).send().await?;
+            let result = result.unwrap();
+
+            let mut output = result.output;
+
+            while output.is_none() {
+                time::sleep(Duration::from_secs(1)).await;
+
+                let r = client.get(result.urls.get.clone()).send().await?;
+
+                let status = r.status().as_u16();
+                let text = r.text().await?;
+
+                if status < 300 && status >= 200 {
+                    let result = serde_json::from_str::<RespBody>(&text);
+
+                    if result.is_err() {
+                        let text = format!("serde_json error, text = {}", text);
+                        error!(text);
+                        return Err(anyhow::anyhow!(text));
+                    }
+
+                    output = result.unwrap().output;
+                } else {
+                    error!("replicate status: {} response: {}", status, text);
+                    return Err(anyhow::anyhow!("get file from replicate failed"));
+                }
+            }
+
+            let resp = client.get(output.unwrap()).send().await?;
 
             if resp.status() == StatusCode::OK {
                 return Ok(resp.bytes().await?);
@@ -85,8 +115,7 @@ impl AiScaleUp {
                 return Err(anyhow::anyhow!("get file from replicate failed"));
             }
         } else {
-            error!("replicate status: {}", status);
-            error!("replicate response: {}", text);
+            error!("replicate status: {} response: {}", status, text);
             return Err(anyhow::anyhow!("get file from replicate failed"));
         }
     }
@@ -117,8 +146,14 @@ impl ReqBody<'_> {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
 struct RespBody {
     id: String,
-    output: String,
+    output: Option<String>,
+    urls: Urls,
+}
+
+#[derive(Deserialize)]
+struct Urls {
+    get: String,
 }

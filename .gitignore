@@ -6,3 +6,4 @@ node_modules
 image-resize-wasm
 .vscode
 .env
+resp.json
