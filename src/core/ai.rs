@@ -66,11 +66,18 @@ impl AiScaleUp {
 
         let r = r.send().await?;
         let status = r.status().as_u16();
+        let text = r.text().await?;
 
         if status < 300 && status >= 200 {
-            let r: RespBody = r.json().await?;
+            let result = serde_json::from_str::<RespBody>(&text);
 
-            let resp = client.get(r.output).send().await?;
+            if result.is_err() {
+                let text = format!("serde_json error, text = {}", text);
+                error!(text);
+                return Err(anyhow::anyhow!(text));
+            }
+
+            let resp = client.get(result.unwrap().output).send().await?;
 
             if resp.status() == StatusCode::OK {
                 return Ok(resp.bytes().await?);
@@ -78,7 +85,6 @@ impl AiScaleUp {
                 return Err(anyhow::anyhow!("get file from replicate failed"));
             }
         } else {
-            let text = r.text().await?;
             error!("replicate status: {}", status);
             error!("replicate response: {}", text);
             return Err(anyhow::anyhow!("get file from replicate failed"));
