@@ -1,0 +1,8 @@
+/target
+image.png
+result.png
+pkg
+node_modules
+image-resize-wasm
+.vscode
+.env
