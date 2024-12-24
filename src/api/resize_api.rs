@@ -173,12 +173,10 @@ async fn handle(params: &ImageResizeParams) -> Result<ZipFileWrapper> {
 
     let path: &Path = std::path::Path::new(&temp_name);
     let file = std::fs::File::create(path)?;
-
-    let mut zip = zip::ZipWriter::new(file);
-
     let result = ZipFileWrapper {
         path: temp_name.to_string(),
     };
+    let mut zip = zip::ZipWriter::new(file);
 
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 

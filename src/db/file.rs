@@ -62,5 +62,5 @@ pub async fn upload_temp(blob: Vec<u8>, filename: &str) -> Result<String> {
     let pub_url = R2_PUBLIC_URL
         .get_or_init(async || env::var("R2_PUB").unwrap())
         .await;
-    return Ok(format!("https://{}/{}/{}", pub_url, bucket, &key));
+    return Ok(format!("https://{}/{}", pub_url, &key));
 }

@@ -9,7 +9,6 @@ use reqwest::header::HeaderMap;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use tokio::time;
-use tracing::error;
 
 static CLIENT: OnceLock<Client> = OnceLock::new();
 static MODEL_VERSION: OnceLock<String> = OnceLock::new();
@@ -74,40 +73,55 @@ impl AiScaleUp {
             let result = serde_json::from_str::<RespBody>(&text);
 
             if result.is_err() {
-                let text = format!("serde_json error, text = {}", text);
-                error!(text);
-                return Err(anyhow::anyhow!(text));
+                return Err(anyhow::anyhow!("serde_json error, text = {}", text));
             }
 
-            let result = result.unwrap();
+            let mut result = result.unwrap();
 
-            let mut output = result.output;
+            let mut retry_count = 0;
+            let retry_max = 20;
+            while result.output.is_none() {
+                if retry_count == retry_max {
+                    return Err(anyhow::anyhow!("retry count full, replicate failed"));
+                }
 
-            while output.is_none() {
-                time::sleep(Duration::from_secs(1)).await;
+                time::sleep(Duration::from_secs(2)).await;
 
-                let r = client.get(result.urls.get.clone()).send().await?;
+                let r = client
+                    .get(result.urls.get.clone())
+                    .headers(get_headers())
+                    .send()
+                    .await?;
 
                 let status = r.status().as_u16();
                 let text = r.text().await?;
 
                 if status < 300 && status >= 200 {
-                    let result = serde_json::from_str::<RespBody>(&text);
+                    let r = serde_json::from_str::<RespBody>(&text);
 
-                    if result.is_err() {
+                    if r.is_err() {
                         let text = format!("serde_json error, text = {}", text);
-                        error!(text);
                         return Err(anyhow::anyhow!(text));
                     }
 
-                    output = result.unwrap().output;
+                    result = r.unwrap();
+
+                    if result.failed() {
+                        return Err(anyhow::anyhow!("urls.get response with status failed"));
+                    }
                 } else {
-                    error!("replicate status: {} response: {}", status, text);
-                    return Err(anyhow::anyhow!("get file from replicate failed"));
+                    let m = format!("urls.get request status: {} response: {}", status, text);
+                    return Err(anyhow::anyhow!("{}", m));
                 }
+
+                retry_count += 1;
             }
 
-            let resp = client.get(output.unwrap()).send().await?;
+            let resp = client
+                .get(result.output.as_ref().unwrap())
+                .headers(get_headers())
+                .send()
+                .await?;
 
             if resp.status() == StatusCode::OK {
                 return Ok(resp.bytes().await?);
@@ -115,8 +129,11 @@ impl AiScaleUp {
                 return Err(anyhow::anyhow!("get file from replicate failed"));
             }
         } else {
-            error!("replicate status: {} response: {}", status, text);
-            return Err(anyhow::anyhow!("get file from replicate failed"));
+            return Err(anyhow::anyhow!(
+                "post replicate status: {} response: {}",
+                status,
+                text
+            ));
         }
     }
 }
@@ -150,7 +167,17 @@ impl ReqBody<'_> {
 struct RespBody {
     id: String,
     output: Option<String>,
+    status: String,
     urls: Urls,
+}
+
+impl RespBody {
+    pub fn failed(&self) -> bool {
+        self.status == "failed"
+    }
+    pub fn success(&self) -> bool {
+        self.status.starts_with("success")
+    }
 }
 
 #[derive(Deserialize)]
