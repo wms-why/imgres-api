@@ -35,12 +35,12 @@ async fn build_client() -> Client {
         .load()
         .await;
 
-    return Client::new(&config);
+    Client::new(&config)
 }
 
 // resize_upload_temp
 fn get_temp_key(filename: &str) -> String {
-    return format!("temp/resize_upload_{}", filename);
+    format!("temp/resize_upload_{}", filename)
 }
 
 pub async fn upload_temp(blob: Vec<u8>, filename: &str) -> Result<String> {
@@ -62,5 +62,5 @@ pub async fn upload_temp(blob: Vec<u8>, filename: &str) -> Result<String> {
     let pub_url = R2_PUBLIC_URL
         .get_or_init(async || env::var("R2_PUB").unwrap())
         .await;
-    return Ok(format!("https://{}/{}", pub_url, &key));
+    Ok(format!("https://{}/{}", pub_url, &key))
 }

@@ -6,15 +6,15 @@ use std::{
 
 use anyhow::Result;
 use image::{load_from_memory_with_format, DynamicImage};
-use poem::{
-    handler, http::StatusCode, session::Session, web::Multipart, Body, IntoResponse, Response,
-};
+use poem::{handler, http::StatusCode, web::Multipart, Body, IntoResponse, Request, Response};
 use serde::Deserialize;
 use tracing::{error, warn};
 use uuid::Uuid;
 use zip::write::SimpleFileOptions;
 
 use crate::{
+    api::check_login_error,
+    auth::token_auth::get_current_user,
     core::{ai, algorithm},
     db::file::upload_temp,
 };
@@ -34,7 +34,7 @@ struct Size {
 
 impl ImageResizeParams {
     pub fn validate(&self) -> bool {
-        if self.blob.len() == 0 || self.sizes.len() == 0 {
+        if self.blob.is_empty() || self.sizes.is_empty() {
             return false;
         }
 
@@ -44,7 +44,7 @@ impl ImageResizeParams {
             }
         }
 
-        return true;
+        true
     }
 
     pub async fn from_multipart(mut multipart: Multipart) -> ImageResizeParams {
@@ -122,25 +122,35 @@ impl ImageResizeParams {
             }
         }
 
-        return params;
+        params
     }
 }
 
 #[handler]
-pub async fn resize(mut multipart: Multipart, _session: &Session) -> impl IntoResponse {
+pub async fn resize(mut multipart: Multipart, req: &Request) -> impl IntoResponse {
     let params = ImageResizeParams::from_multipart(multipart).await;
 
     if !params.validate() {
         return Response::builder().status(StatusCode::BAD_REQUEST).finish();
     }
 
+    for ele in &params.sizes {
+        if ele.use_ai {
+            let user = get_current_user(req);
+            if user.is_none() {
+                return check_login_error().into_response();
+            }
+            break;
+        }
+    }
+
     let r = handle(&params).await;
 
     if r.is_err() {
         error!("{}", r.err().unwrap().root_cause().to_string());
-        return Response::builder()
+        Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .finish();
+            .finish()
     } else {
         let path = r.unwrap();
         let path = std::path::Path::new(&(path.path));
@@ -161,15 +171,13 @@ pub async fn resize(mut multipart: Multipart, _session: &Session) -> impl IntoRe
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .finish();
         }
-        let r = Response::builder()
+        Response::builder()
             .content_type("application/octet-stream")
-            .body(Body::from_vec(buffer));
-
-        return r;
+            .body(Body::from_vec(buffer))
     }
 }
 async fn handle(params: &ImageResizeParams) -> Result<ZipFileWrapper> {
-    let temp_name = format!("{}.zip", Uuid::new_v4().to_string());
+    let temp_name = format!("{}.zip", Uuid::new_v4());
 
     let path: &Path = std::path::Path::new(&temp_name);
     let file = std::fs::File::create(path)?;
@@ -190,7 +198,7 @@ async fn handle(params: &ImageResizeParams) -> Result<ZipFileWrapper> {
             if img_url.is_none() {
                 let filename = format!(
                     "{}.{}",
-                    uuid::Uuid::new_v4().to_string(),
+                    uuid::Uuid::new_v4(),
                     params.img_type.extensions_str()[0]
                 );
 
@@ -211,7 +219,7 @@ async fn handle(params: &ImageResizeParams) -> Result<ZipFileWrapper> {
 
             // use algorithm
             buf = algorithm::AlgorithmResize.resize(
-                &(img_obj.as_ref().unwrap()),
+                img_obj.as_ref().unwrap(),
                 params.img_type,
                 ele.scale,
             )?;
@@ -219,7 +227,7 @@ async fn handle(params: &ImageResizeParams) -> Result<ZipFileWrapper> {
 
         let ext = params.img_type.extensions_str()[0];
         zip.start_file(
-            generate_file_name(params.width, params.height, &ele, ext),
+            generate_file_name(params.width, params.height, ele, ext),
             options,
         )?;
         zip.write_all(buf.borrow())?;
@@ -227,16 +235,16 @@ async fn handle(params: &ImageResizeParams) -> Result<ZipFileWrapper> {
 
     zip.finish()?;
 
-    return Ok(result);
+    Ok(result)
 }
 
 fn generate_file_name(width: u32, height: u32, size: &Size, ext: &str) -> String {
-    return format!(
+    format!(
         "@{}_{}.{}",
         (width as f32 * size.scale) as u32,
         (height as f32 * size.scale) as u32,
         ext
-    );
+    )
 }
 
 struct ZipFileWrapper {

@@ -14,14 +14,7 @@ static CLIENT: OnceLock<Client> = OnceLock::new();
 static MODEL_VERSION: OnceLock<String> = OnceLock::new();
 
 fn get_client() -> Client {
-    let mut c = reqwest::ClientBuilder::new();
-
-    #[cfg(not(feature = "use-proxy"))]
-    {
-        c = c.no_proxy();
-    }
-
-    c.build().unwrap()
+    reqwest::ClientBuilder::new().build().unwrap()
 }
 
 fn get_headers() -> HeaderMap {
@@ -31,7 +24,7 @@ fn get_headers() -> HeaderMap {
     headers.insert("content-type".to_string(), "application/json".to_string());
     headers.insert("Prefer".to_string(), "wait".to_string());
 
-    return (&headers).try_into().unwrap();
+    (&headers).try_into().unwrap()
 }
 
 fn get_model_version() -> String {
@@ -55,10 +48,9 @@ pub struct AiScaleUp;
 ///   }
 /// }' \
 /// https://api.replicate.com/v1/predictions
-
 impl AiScaleUp {
     pub async fn resize(self, img_src: &str, scale_factor: f32) -> Result<Bytes> {
-        let client = CLIENT.get_or_init(|| get_client());
+        let client = CLIENT.get_or_init(get_client);
         let body = ReqBody::new(img_src, scale_factor);
         let r = client
             .post("https://api.replicate.com/v1/predictions")
@@ -69,7 +61,7 @@ impl AiScaleUp {
         let status = r.status().as_u16();
         let text = r.text().await?;
 
-        if status < 300 && status >= 200 {
+        if (200..300).contains(&status) {
             let result = serde_json::from_str::<RespBody>(&text);
 
             if result.is_err() {
@@ -96,7 +88,7 @@ impl AiScaleUp {
                 let status = r.status().as_u16();
                 let text = r.text().await?;
 
-                if status < 300 && status >= 200 {
+                if (200..300).contains(&status) {
                     let r = serde_json::from_str::<RespBody>(&text);
 
                     if r.is_err() {
@@ -124,16 +116,16 @@ impl AiScaleUp {
                 .await?;
 
             if resp.status() == StatusCode::OK {
-                return Ok(resp.bytes().await?);
+                Ok(resp.bytes().await?)
             } else {
-                return Err(anyhow::anyhow!("get file from replicate failed"));
+                Err(anyhow::anyhow!("get file from replicate failed"))
             }
         } else {
-            return Err(anyhow::anyhow!(
+            Err(anyhow::anyhow!(
                 "post replicate status: {} response: {}",
                 status,
                 text
-            ));
+            ))
         }
     }
 }
@@ -153,7 +145,7 @@ struct Input {
 impl ReqBody<'_> {
     pub fn new(image: &str, scale: f32) -> ReqBody<'static> {
         ReqBody {
-            version: MODEL_VERSION.get_or_init(|| get_model_version()),
+            version: MODEL_VERSION.get_or_init(get_model_version),
             input: Input {
                 image: image.to_string(),
                 scale,

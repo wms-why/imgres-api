@@ -3,20 +3,14 @@ mod auth;
 mod core;
 mod db;
 
-use api::resize_api::resize;
+use api::resize::resize;
 use auth::Auth;
-use poem::middleware::Cors;
+use poem::middleware::{CatchPanic, Cors};
 use poem::EndpointExt;
-use poem::{
-    get, handler,
-    listener::TcpListener,
-    post,
-    session::{CookieConfig, CookieSession},
-    IntoResponse, Result, Route, Server,
-};
+use poem::{get, handler, listener::TcpListener, post, IntoResponse, Result, Route, Server};
 #[handler]
 fn helloworld() -> impl IntoResponse {
-    return "hello world".into_response();
+    "hello world".into_response()
 }
 
 #[tokio::main]
@@ -35,8 +29,8 @@ async fn main() -> Result<(), std::io::Error> {
     let app = Route::new()
         .at("/hello", get(helloworld))
         .at("/resize", post(resize).with(Auth))
-        .with(CookieSession::new(CookieConfig::new()))
-        .with(Cors::new());
+        .with(Cors::new())
+        .with(CatchPanic::new());
 
     Server::new(TcpListener::bind("0.0.0.0:53768"))
         .run(app)

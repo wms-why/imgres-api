@@ -1,4 +1,4 @@
-mod token_auth;
+pub mod token_auth;
 
 use poem::{Endpoint, Middleware};
 
