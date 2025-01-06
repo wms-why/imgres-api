@@ -7,3 +7,4 @@ image-resize-wasm
 .vscode
 .env
 resp.json
+*.pem
