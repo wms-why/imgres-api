@@ -127,7 +127,7 @@ impl ImageResizeParams {
 }
 
 #[handler]
-pub async fn resize(mut multipart: Multipart, req: &Request) -> impl IntoResponse {
+pub async fn resize_free(mut multipart: Multipart) -> Response {
     let params = ImageResizeParams::from_multipart(multipart).await;
 
     if !params.validate() {
@@ -136,55 +136,66 @@ pub async fn resize(mut multipart: Multipart, req: &Request) -> impl IntoRespons
 
     for ele in &params.sizes {
         if ele.use_ai {
-            let user = get_current_user(req);
-            if user.is_none() {
-                return check_login_error().into_response();
-            }
-            break;
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .finish();
         }
     }
 
     let r = handle(&params).await;
 
-    if r.is_err() {
-        error!("{}", r.err().unwrap().root_cause().to_string());
-        Response::builder()
+    if let Err(e) = r {
+        error!("{:?}", e);
+        return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .finish()
-    } else {
-        let path = r.unwrap();
-        let path = std::path::Path::new(&(path.path));
-        let file = std::fs::File::open(path);
-
-        if file.is_err() {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(file.err().unwrap().to_string());
-        }
-
-        let mut buffer = Vec::new();
-        let r = file.unwrap().read_to_end(&mut buffer);
-
-        if r.is_err() {
-            error!("read handled file error {:?}", r.err());
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .finish();
-        }
-        Response::builder()
-            .content_type("application/octet-stream")
-            .body(Body::from_vec(buffer))
+            .finish();
     }
+
+    r.unwrap()
 }
-async fn handle(params: &ImageResizeParams) -> Result<ZipFileWrapper> {
+
+#[handler]
+pub async fn resize(mut multipart: Multipart, req: &Request) -> Response {
+    let params = ImageResizeParams::from_multipart(multipart).await;
+
+    if !params.validate() {
+        return Response::builder().status(StatusCode::BAD_REQUEST).finish();
+    }
+
+    // for ele in &params.sizes {
+    //     if ele.use_ai {
+    //         let user = get_current_user(req);
+    //         if user.is_none() {
+    //             return check_login_error().into_response();
+    //         }
+    //         break;
+    //     }
+    // }
+
+    let r = handle(&params).await;
+
+    if let Err(e) = r {
+        error!("{:?}", e);
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .finish();
+    }
+
+    r.unwrap()
+}
+async fn handle(params: &ImageResizeParams) -> Result<Response> {
     let temp_name = format!("{}.zip", Uuid::new_v4());
 
     let path: &Path = std::path::Path::new(&temp_name);
     let file = std::fs::File::create(path)?;
-    let result = ZipFileWrapper {
-        path: temp_name.to_string(),
-    };
-    let mut zip = zip::ZipWriter::new(file);
+
+    defer::defer! {
+        std::fs::remove_file(path).unwrap_or_else(|e| {
+            warn!("remove file error: {:?}", e);
+        })
+    }
+
+    let mut zip = zip::ZipWriter::new(&file);
 
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
@@ -235,7 +246,13 @@ async fn handle(params: &ImageResizeParams) -> Result<ZipFileWrapper> {
 
     zip.finish()?;
 
-    Ok(result)
+    let mut file = std::fs::File::open(path)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+
+    Ok(Response::builder()
+        .content_type("application/octet-stream")
+        .body(Body::from_vec(buffer)))
 }
 
 fn generate_file_name(width: u32, height: u32, size: &Size, ext: &str) -> String {
@@ -245,18 +262,4 @@ fn generate_file_name(width: u32, height: u32, size: &Size, ext: &str) -> String
         (height as f32 * size.scale) as u32,
         ext
     )
-}
-
-struct ZipFileWrapper {
-    path: String,
-}
-
-impl Drop for ZipFileWrapper {
-    fn drop(&mut self) {
-        let path = std::path::Path::new(&self.path);
-        let re = std::fs::remove_file(path);
-        if re.is_err() {
-            warn!("{:?}", re);
-        }
-    }
 }

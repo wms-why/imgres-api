@@ -3,7 +3,7 @@ mod auth;
 mod core;
 mod db;
 
-use api::resize::resize;
+use api::resize::{resize, resize_free};
 use auth::Auth;
 use poem::middleware::{CatchPanic, Cors};
 use poem::EndpointExt;
@@ -28,6 +28,7 @@ async fn main() -> Result<(), std::io::Error> {
 
     let app = Route::new()
         .at("/hello", get(helloworld))
+        .at("/resizefree", post(resize_free))
         .at("/resize", post(resize).with(Auth))
         .with(Cors::new())
         .with(CatchPanic::new());

@@ -1,17 +1,8 @@
-use std::rc::Rc;
-
 use super::get_pool;
 use anyhow::Ok;
 use sqlx::types::chrono;
 
 use anyhow::Result;
-
-#[derive(Debug, Clone, sqlx::Type)]
-#[sqlx(type_name = "reg_from", rename_all = "lowercase")]
-pub enum RegFrom {
-    Google,
-    Other,
-}
 
 #[derive(sqlx::FromRow, Clone)]
 pub struct User {
@@ -20,7 +11,7 @@ pub struct User {
     pub email: String,
     pub credit: i64,
     pub ctime: chrono::NaiveDateTime,
-    pub reg_from: RegFrom,
+    pub reg_from: String,
 }
 
 impl User {
@@ -31,7 +22,7 @@ impl User {
             email: email.to_string(),
             credit: 10,
             ctime: chrono::Utc::now().naive_utc(),
-            reg_from: RegFrom::Google,
+            reg_from: "google".to_string(),
         }
     }
 }

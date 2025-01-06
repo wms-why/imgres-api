@@ -22,34 +22,34 @@ impl<E: Endpoint> Endpoint for TokenAuth<E> {
     type Output = Response;
 
     async fn call(&self, mut req: Request) -> Result<Self::Output> {
-        let authorization = req.headers().typed_get::<Authorization<Bearer>>();
+        // let authorization = req.headers().typed_get::<Authorization<Bearer>>();
 
-        if authorization.is_some() {
-            let r = get_client()
-                .validate_id_token(authorization.unwrap().token())
-                .await;
-            if r.is_err() {
-                error!("google validate_id_token error: {}", r.err().unwrap());
-                return Ok(Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .finish());
-            }
+        // if authorization.is_some() {
+        //     let r = get_client()
+        //         .validate_id_token(authorization.unwrap().token())
+        //         .await;
+        //     if r.is_err() {
+        //         error!("google validate_id_token error: {}", r.err().unwrap());
+        //         return Ok(Response::builder()
+        //             .status(StatusCode::UNAUTHORIZED)
+        //             .finish());
+        //     }
 
-            let r = r.unwrap();
+        //     let r = r.unwrap();
 
-            if !validate_payload(&r) {
-                error!("google GooglePayload validate error: {:?}", r);
-                return Ok(Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .finish());
-            }
-            if let Err(e) = set_current_user(&mut req, r).await {
-                error!("set_current_user error: {}", e);
-                return Ok(Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .finish());
-            }
-        }
+        //     if !validate_payload(&r) {
+        //         error!("google GooglePayload validate error: {:?}", r);
+        //         return Ok(Response::builder()
+        //             .status(StatusCode::UNAUTHORIZED)
+        //             .finish());
+        //     }
+        //     if let Err(e) = set_current_user(&mut req, r).await {
+        //         error!("set_current_user error: {}", e);
+        //         return Ok(Response::builder()
+        //             .status(StatusCode::INTERNAL_SERVER_ERROR)
+        //             .finish());
+        //     }
+        // }
 
         let res = self.0.call(req).await;
         match res {
