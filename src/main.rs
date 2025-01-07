@@ -7,10 +7,12 @@ use std::io::Read;
 
 use api::resize::{resize, resize_free};
 use auth::Auth;
-use poem::listener::{RustlsCertificate, RustlsConfig};
-use poem::middleware::{CatchPanic, Cors};
-use poem::EndpointExt;
-use poem::{get, handler, listener::TcpListener, post, IntoResponse, Result, Route, Server};
+use poem::{
+    get, handler,
+    listener::{Listener, RustlsCertificate, RustlsConfig, TcpListener},
+    middleware::{CatchPanic, Cors},
+    post, EndpointExt, IntoResponse, Result, Route, Server,
+};
 #[handler]
 fn helloworld() -> impl IntoResponse {
     "hello world".into_response()
@@ -36,25 +38,36 @@ async fn main() -> Result<(), std::io::Error> {
         .with(Cors::new())
         .with(CatchPanic::new());
 
-    let listener = if std::env::var("PROFILE").is_ok_and(|v| v == "dev") {
-        TcpListener::bind("0.0.0.0:53768");
+    if std::env::var("PROFILE").is_ok_and(|v| v == "dev") {
+        let listener = TcpListener::bind("0.0.0.0:53768");
+
+        Server::new(listener).run(app).await
     } else {
         let cert = std::fs::File::open("cert.pem").expect("Failed to get cert.pem");
         let key = std::fs::File::open("key.pem").expect("Failed to get key.pem");
 
-        let mut cert = std::io::BufReader::new(cert);
-        let mut key = std::io::BufReader::new(key);
+        let cert = std::io::BufReader::new(cert);
+        let key = std::io::BufReader::new(key);
 
-        let cert_str = "".to_string();
-        cert.read_to_string(&mut cert_str);
+        let mut cert_str = "".to_string();
+        let size = cert
+            .read_to_string(&mut cert_str)
+            .expect("Failed to read cert.pem");
 
-        let key_str = "".to_string();
-        key.read_to_string(&mut key_str);
+        if size == 0 {
+            panic!("cert.pem is blank");
+        }
 
-        TcpListener::bind("0.0.0.0:53768").rustls(
+        let mut key_str = "".to_string().expect("Failed to read key.pem");
+        let size = key.read_to_string(&mut key_str);
+
+        if size == 0 {
+            panic!("key.pem is blank");
+        }
+
+        let listener = TcpListener::bind("0.0.0.0:53768").rustls(
             RustlsConfig::new().fallback(RustlsCertificate::new().key(key_str).cert(cert_str)),
-        )
-    };
-
-    Server::new(listener).run(app).await
+        );
+        Server::new(listener).run(app).await
+    }
 }
