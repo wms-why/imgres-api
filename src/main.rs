@@ -43,11 +43,11 @@ async fn main() -> Result<(), std::io::Error> {
 
         Server::new(listener).run(app).await
     } else {
-        let cert = std::fs::File::open("cert.pem").expect("Failed to get cert.pem");
-        let key = std::fs::File::open("key.pem").expect("Failed to get key.pem");
+        let cert = std::fs::File::open("cert.pem").expect("Failed to find cert.pem");
+        let key = std::fs::File::open("key.pem").expect("Failed to find key.pem");
 
-        let cert = std::io::BufReader::new(cert);
-        let key = std::io::BufReader::new(key);
+        let mut cert = std::io::BufReader::new(cert);
+        let mut key = std::io::BufReader::new(key);
 
         let mut cert_str = "".to_string();
         let size = cert
@@ -58,8 +58,10 @@ async fn main() -> Result<(), std::io::Error> {
             panic!("cert.pem is blank");
         }
 
-        let mut key_str = "".to_string().expect("Failed to read key.pem");
-        let size = key.read_to_string(&mut key_str);
+        let mut key_str = "".to_string();
+        let size = key
+            .read_to_string(&mut key_str)
+            .expect("Failed to read key.pem");
 
         if size == 0 {
             panic!("key.pem is blank");
