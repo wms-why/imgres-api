@@ -44,12 +44,14 @@ fn get_temp_key(filename: &str) -> String {
 }
 
 pub async fn upload_temp(blob: Vec<u8>, filename: &str) -> Result<String> {
-    let client: &Client = R2_CLIENT.get_or_init(async || build_client().await).await;
+    let client: &Client = R2_CLIENT
+        .get_or_init(|| Box::pin(async { build_client().await }))
+        .await;
 
     let body = aws_sdk_s3::primitives::ByteStream::from(blob);
     let key = get_temp_key(filename);
     let bucket = R2_BUCKET
-        .get_or_init(async || env::var("R2_BUCKET").unwrap())
+        .get_or_init(|| Box::pin(async { env::var("R2_BUCKET").unwrap() }))
         .await;
     client
         .put_object()
@@ -60,7 +62,7 @@ pub async fn upload_temp(blob: Vec<u8>, filename: &str) -> Result<String> {
         .await?;
 
     let pub_url = R2_PUBLIC_URL
-        .get_or_init(async || env::var("R2_PUB").unwrap())
+        .get_or_init(|| Box::pin(async { env::var("R2_PUB").unwrap() }))
         .await;
     Ok(format!("https://{}/{}", pub_url, &key))
 }

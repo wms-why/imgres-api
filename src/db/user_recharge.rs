@@ -1,11 +1,11 @@
-use sqlx::types::chrono;
+use chrono::NaiveDateTime;
 
-#[derive(sqlx::FromRow, Default)]
+
 pub struct UserRecharge {
     pub id: i32,
     pub user_id: i32,
     pub amount: i64,
-    pub ctime: chrono::NaiveDateTime,
+    pub ctime: NaiveDateTime,
 
     // 取消
     pub canceled: bool,

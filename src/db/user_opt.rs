@@ -1,10 +1,10 @@
-use sqlx::types::chrono;
+use chrono::NaiveDateTime;
 
-#[derive(sqlx::FromRow, Default)]
+
 pub struct UserOpt {
     pub id: i32,
     pub user_id: i32,
-    pub ctime: chrono::NaiveDateTime,
+    pub ctime: NaiveDateTime,
     pub opts: String,
     pub cost_credits: i64,
 }

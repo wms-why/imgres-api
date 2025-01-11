@@ -1,55 +1,23 @@
-use google_oauth::{AsyncClient, GooglePayload};
+use google_oauth::GooglePayload;
 use poem::{
-    http::StatusCode,
     web::headers::{authorization::Bearer, Authorization, HeaderMapExt},
     Endpoint, IntoResponse, Request, Response, Result,
 };
-use std::{env, sync::Arc, sync::OnceLock};
+use std::sync::Arc;
 use tracing::{debug, error};
+use anyhow;
 
-use crate::db::user::{self, User};
-
-static CLIENT: OnceLock<AsyncClient> = OnceLock::new();
-
-fn get_client() -> &'static AsyncClient {
-    let client_id = env::var("GOOGLE_CLIENT_ID").expect("GOOGLE_CLIENT_ID is not set");
-    CLIENT.get_or_init(|| AsyncClient::new(client_id))
-}
+use crate::db::user::{self, Model};
 
 pub struct TokenAuth<E>(pub E);
 
 impl<E: Endpoint> Endpoint for TokenAuth<E> {
     type Output = Response;
 
-    async fn call(&self, mut req: Request) -> Result<Self::Output> {
-        // let authorization = req.headers().typed_get::<Authorization<Bearer>>();
+    async fn call(&self, req: Request) -> Result<Self::Output> {
+        let authorization = req.headers().typed_get::<Authorization<Bearer>>();
 
-        // if authorization.is_some() {
-        //     let r = get_client()
-        //         .validate_id_token(authorization.unwrap().token())
-        //         .await;
-        //     if r.is_err() {
-        //         error!("google validate_id_token error: {}", r.err().unwrap());
-        //         return Ok(Response::builder()
-        //             .status(StatusCode::UNAUTHORIZED)
-        //             .finish());
-        //     }
-
-        //     let r = r.unwrap();
-
-        //     if !validate_payload(&r) {
-        //         error!("google GooglePayload validate error: {:?}", r);
-        //         return Ok(Response::builder()
-        //             .status(StatusCode::UNAUTHORIZED)
-        //             .finish());
-        //     }
-        //     if let Err(e) = set_current_user(&mut req, r).await {
-        //         error!("set_current_user error: {}", e);
-        //         return Ok(Response::builder()
-        //             .status(StatusCode::INTERNAL_SERVER_ERROR)
-        //             .finish());
-        //     }
-        // }
+        if authorization.is_some() {}
 
         let res = self.0.call(req).await;
         match res {
@@ -66,18 +34,14 @@ impl<E: Endpoint> Endpoint for TokenAuth<E> {
     }
 }
 
-fn validate_payload(payload: &GooglePayload) -> bool {
-    payload.email.is_some()
-}
-
 async fn set_current_user(req: &mut Request, payload: GooglePayload) -> anyhow::Result<()> {
     debug!(
         "GooglePayload: {}",
-        serde_json::to_string(&payload).unwrap()
+        serde_json::to_string(&payload)?
     );
 
     let email = payload.email.clone().unwrap();
-    let u = user::get_by_email(email.as_ref()).await;
+    let u = user::get_by_email(email.as_ref()).await?;
 
     if let Some(u) = u {
         req.set_data(Arc::new(u));
@@ -91,11 +55,11 @@ async fn set_current_user(req: &mut Request, payload: GooglePayload) -> anyhow::
         let uu = Arc::new(uu);
         req.set_data(uu);
     }
-    Ok(())
+    anyhow::Ok(())
 }
 
-pub fn get_current_user(req: &Request) -> Option<&User> {
-    let u: Option<&Arc<User>> = req.extensions().get();
+pub fn get_current_user(req: &Request) -> Option<&Model> {
+    let u: Option<&Arc<Model>> = req.extensions().get();
 
     u?;
 
