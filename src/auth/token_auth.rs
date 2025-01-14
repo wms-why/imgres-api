@@ -17,7 +17,9 @@ impl<E: Endpoint> Endpoint for TokenAuth<E> {
     async fn call(&self, req: Request) -> Result<Self::Output> {
         let authorization = req.headers().typed_get::<Authorization<Bearer>>();
 
-        if authorization.is_some() {}
+        if authorization.is_some() {
+            
+        }
 
         let res = self.0.call(req).await;
         match res {

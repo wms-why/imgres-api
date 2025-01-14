@@ -157,7 +157,7 @@ impl ReqBody<'_> {
 
 #[derive(Deserialize)]
 struct RespBody {
-    id: String,
+    // id: String,
     output: Option<String>,
     status: String,
     urls: Urls,
@@ -167,9 +167,9 @@ impl RespBody {
     pub fn failed(&self) -> bool {
         self.status == "failed"
     }
-    pub fn success(&self) -> bool {
-        self.status.starts_with("success")
-    }
+    // pub fn success(&self) -> bool {
+    //     self.status.starts_with("success")
+    // }
 }
 
 #[derive(Deserialize)]

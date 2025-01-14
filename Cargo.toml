@@ -18,7 +18,7 @@ tracing = { version = "0.1.41" }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 zip = { version = "2.2.2" }
 rand = { version = "0.8.5" }
-uuid = { version = "1.11.0", features = ["v4"] }
+uuid = { version = "1.11.1", features = ["v4"] }
 reqwest = { version = "0.12.12", features = ["json"] }
 aws-config = { version = "1.5.13" }
 aws-sdk-s3 = { version = "1.68.0" }
@@ -28,10 +28,11 @@ dotenvy = { version = "0.15.7" }
 url = { version = "2.5.4" }
 google-oauth = { version = "1" }
 defer = { version = "*" }
-sea-orm = { version = "1.1.3", features = [
+sea-orm = { version = "1.1.4", features = [
     "sqlx-postgres",
     "runtime-tokio-rustls",
     "macros",
     "with-chrono",
 ] }
 chrono = { version = "0.4.39" }
+jsonwebtoken = "9"

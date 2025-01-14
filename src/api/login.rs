@@ -1,28 +1,27 @@
 use std::{env, sync::OnceLock};
 
 use google_oauth::{AsyncClient, GooglePayload};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use poem::{
     handler,
     http::StatusCode,
     web::{Json, Query},
     IntoResponse, Response,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use crate::db::user;
 
-#[derive(Serialize)]
-struct LoginResp {
+#[derive(Serialize, Deserialize)]
+struct Claims {
+    user_id: i32,
     username: String,
-    token: String,
-
     // 秒
     exp: i64,
 }
-
-impl LoginResp {
-    fn new(username: String, token: String) -> Self {
+impl Claims {
+    fn new(user_id: i32, username: String) -> Self {
         // 当前秒数
         let exp = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -32,10 +31,36 @@ impl LoginResp {
         // 24h
         let exp_duration = 60 * 60 * 24;
         Self {
+            user_id,
             username,
-            token,
             exp: exp + exp_duration,
         }
+    }
+}
+
+static TOKEN_SECRET: OnceLock<String> = OnceLock::new();
+fn get_token_secret() -> &'static String {
+    TOKEN_SECRET.get_or_init(|| env::var("TOKEN_SECRET").expect("TOKEN_SECRET is not set"))
+}
+
+#[derive(Serialize)]
+struct LoginResp {
+    token: String,
+    meta: Claims,
+}
+
+impl From<Claims> for LoginResp {
+    fn from(value: Claims) -> Self {
+        let secret = get_token_secret().as_bytes();
+
+        let token = encode(
+            &Header::default(),
+            &value,
+            &EncodingKey::from_secret(secret),
+        )
+        .unwrap();
+
+        Self { token, meta: value }
     }
 }
 
@@ -58,7 +83,7 @@ pub async fn login(Query(token): Query<String>) -> Response {
 
     let r = r.unwrap();
 
-    if !validate_payload(&r) {
+    if !validate_google_payload(&r) {
         error!("google GooglePayload validate error: {:?}", r);
         return Response::builder()
             .status(StatusCode::UNAUTHORIZED)
@@ -83,7 +108,7 @@ pub async fn login(Query(token): Query<String>) -> Response {
     if u.is_none() {
         let insert_r = user::insert(name.as_ref(), email.as_ref()).await;
 
-        if (insert_r.is_err()) {
+        if insert_r.is_err() {
             error!("insert user error: {}", insert_r.err().unwrap());
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -95,11 +120,21 @@ pub async fn login(Query(token): Query<String>) -> Response {
         user = u.unwrap();
     }
 
-    let resp = LoginResp::new(name, token);
+    let meta = Claims::new(user.id, name);
 
-    return Json(resp).into_response();
+    Json(LoginResp::from(meta)).into_response()
 }
 
-fn validate_payload(payload: &GooglePayload) -> bool {
+fn validate_google_payload(payload: &GooglePayload) -> bool {
     payload.email.is_some() && payload.name.is_some()
+}
+
+pub fn decode_from_token(
+    token: &str,
+) -> Result<jsonwebtoken::TokenData<Claims>, jsonwebtoken::errors::Error> {
+    let secret = get_token_secret().as_bytes();
+
+    let mut v = Validation::default();
+    v.validate_aud = false;
+    decode::<Claims>(token, &DecodingKey::from_secret(secret), &v)
 }
