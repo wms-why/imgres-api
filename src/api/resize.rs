@@ -1,28 +1,26 @@
 use std::{
     borrow::Borrow,
-    io::{Read, Write},
+    io::{Cursor, Read, Write},
     path::Path,
 };
 
-use anyhow::Result;
-use image::{load_from_memory_with_format, DynamicImage};
-use poem::{handler, http::StatusCode, web::Multipart, Body, IntoResponse, Request, Response};
+use anyhow::{Error, Result};
+use image::{DynamicImage, ImageReader};
+use poem::{handler, http::StatusCode, web::Multipart, Body, Request, Response};
 use serde::Deserialize;
 use tracing::{error, warn};
 use uuid::Uuid;
 use zip::write::SimpleFileOptions;
 
 use crate::{
-    api::check_login_error,
-    auth::token_auth::get_current_user,
-    core::{ai, algorithm},
+    core::{ai, algorithm, transform},
     db::file::upload_temp,
 };
 struct ImageResizeParams {
-    blob: Vec<u8>,
+    image: DynamicImage,
     width: u32,
     height: u32,
-    img_type: image::ImageFormat,
+    target_img_type: image::ImageFormat,
     sizes: Vec<Size>,
 }
 
@@ -34,7 +32,7 @@ struct Size {
 
 impl ImageResizeParams {
     pub fn validate(&self) -> bool {
-        if self.blob.is_empty() || self.sizes.is_empty() {
+        if self.sizes.is_empty() {
             return false;
         }
 
@@ -47,14 +45,13 @@ impl ImageResizeParams {
         true
     }
 
-    pub async fn from_multipart(mut multipart: Multipart) -> ImageResizeParams {
-        let mut params = ImageResizeParams {
-            blob: vec![],
-            img_type: image::ImageFormat::Png,
-            sizes: vec![],
-            width: 0,
-            height: 0,
-        };
+    pub async fn from_multipart(mut multipart: Multipart) -> Result<ImageResizeParams> {
+        let mut image = Option::None;
+
+        let mut target_img_type = image::ImageFormat::Png;
+        let mut sizes = vec![];
+        let mut width = 0;
+        let mut height = 0;
 
         while let Ok(Some(field)) = multipart.next_field().await {
             let name = field.name();
@@ -68,7 +65,6 @@ impl ImageResizeParams {
             match name {
                 "blob" => {
                     let content_type = field.content_type();
-
                     if let Some(content_type) = content_type {
                         let content_type = content_type.to_string();
                         let i = content_type.find("/");
@@ -77,7 +73,7 @@ impl ImageResizeParams {
                                 content_type.to_string().split_at(i + 1).1,
                             );
                             if let Some(image_type) = image_type {
-                                params.img_type = image_type;
+                                target_img_type = image_type;
                             }
                         }
                     }
@@ -85,10 +81,24 @@ impl ImageResizeParams {
                     let b = field.bytes().await;
 
                     if b.is_err() {
-                        continue;
+                        return Err(Error::msg("upload image is empty"));
                     }
 
-                    params.blob = b.unwrap().to_vec();
+                    let blob = b.unwrap();
+                    let cursor = Cursor::new(blob);
+                    let pic = ImageReader::new(cursor).with_guessed_format();
+
+                    if pic.is_err() {
+                        return Err(Error::msg("upload image format is unkown"));
+                    }
+
+                    let pic = pic.unwrap();
+                    let format = pic.format();
+                    if format.is_none() {
+                        return Err(Error::msg("upload image format is unkown"));
+                    }
+
+                    image = Some(pic.decode()?);
                 }
                 "sizes" => {
                     let text = field.text().await;
@@ -96,7 +106,7 @@ impl ImageResizeParams {
                         let ss = serde_json::from_str::<Vec<Size>>(&text.unwrap());
 
                         if ss.is_ok() {
-                            params.sizes = ss.unwrap();
+                            sizes = ss.unwrap();
                         }
                     }
                 }
@@ -105,7 +115,7 @@ impl ImageResizeParams {
                     if text.is_ok() {
                         let w = text.unwrap().parse::<u32>();
                         if w.is_ok() {
-                            params.width = w.unwrap();
+                            width = w.unwrap();
                         }
                     }
                 }
@@ -114,7 +124,7 @@ impl ImageResizeParams {
                     if text.is_ok() {
                         let h = text.unwrap().parse::<u32>();
                         if h.is_ok() {
-                            params.height = h.unwrap();
+                            height = h.unwrap();
                         }
                     }
                 }
@@ -122,13 +132,31 @@ impl ImageResizeParams {
             }
         }
 
-        params
+        if image.is_none() {
+            return Err(Error::msg("upload image is empty"));
+        }
+
+        Ok(ImageResizeParams {
+            image: image.unwrap(),
+            target_img_type,
+            sizes,
+            width,
+            height,
+        })
     }
 }
 
 #[handler]
 pub async fn resize_free(mut multipart: Multipart) -> Response {
     let params = ImageResizeParams::from_multipart(multipart).await;
+
+    if params.is_err() {
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(params.err().unwrap().to_string());
+    }
+
+    let params = params.unwrap();
 
     if !params.validate() {
         return Response::builder().status(StatusCode::BAD_REQUEST).finish();
@@ -155,8 +183,16 @@ pub async fn resize_free(mut multipart: Multipart) -> Response {
 }
 
 #[handler]
-pub async fn resize(mut multipart: Multipart, req: &Request) -> Response {
+pub async fn resize(mut multipart: Multipart, _req: &Request) -> Response {
     let params = ImageResizeParams::from_multipart(multipart).await;
+
+    if params.is_err() {
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(params.err().unwrap().to_string());
+    }
+
+    let params = params.unwrap();
 
     if !params.validate() {
         return Response::builder().status(StatusCode::BAD_REQUEST).finish();
@@ -200,7 +236,6 @@ async fn handle(params: &ImageResizeParams) -> Result<Response> {
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
 
     let mut img_url: Option<String> = Option::None;
-    let mut img_obj: Option<DynamicImage> = Option::None;
 
     for ele in &params.sizes {
         let buf;
@@ -210,10 +245,12 @@ async fn handle(params: &ImageResizeParams) -> Result<Response> {
                 let filename = format!(
                     "{}.{}",
                     uuid::Uuid::new_v4(),
-                    params.img_type.extensions_str()[0]
+                    params.target_img_type.extensions_str()[0]
                 );
 
-                let r = upload_temp(params.blob.clone(), &filename).await?;
+                let buffer = transform(&params.image, params.target_img_type)?;
+
+                let r = upload_temp(buffer, &filename).await?;
 
                 img_url = Some(r);
             }
@@ -223,20 +260,15 @@ async fn handle(params: &ImageResizeParams) -> Result<Response> {
                 .resize(img_url.as_ref().unwrap(), ele.scale)
                 .await?;
         } else {
-            if img_obj.as_ref().is_none() {
-                let src_image = load_from_memory_with_format(&params.blob, params.img_type)?;
-                img_obj = Some(src_image);
-            }
-
             // use algorithm
             buf = algorithm::AlgorithmResize.resize(
-                img_obj.as_ref().unwrap(),
-                params.img_type,
+                &params.image,
+                params.target_img_type,
                 ele.scale,
             )?;
         }
 
-        let ext = params.img_type.extensions_str()[0];
+        let ext = params.target_img_type.extensions_str()[0];
         zip.start_file(
             generate_file_name(params.width, params.height, ele, ext),
             options,

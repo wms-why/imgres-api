@@ -16,7 +16,7 @@ impl AlgorithmResize {
     pub fn resize(
         self,
         src_image: &DynamicImage,
-        img_type: image::ImageFormat,
+        target_type: image::ImageFormat,
         scale_factor: f32,
     ) -> Result<Bytes> {
         // Create container for data of destination image
@@ -33,7 +33,7 @@ impl AlgorithmResize {
 
         // Write destination image as PNG-file
         let mut writer = BufWriter::new(Vec::new());
-        match img_type {
+        match target_type {
             ImageFormat::Png => {
                 png::PngEncoder::new(&mut writer)
                     .write_image(
@@ -67,7 +67,7 @@ impl AlgorithmResize {
             _ => Err(ImageError::Unsupported(
                 UnsupportedError::from_format_and_kind(
                     ImageFormatHint::Unknown,
-                    UnsupportedErrorKind::Format(ImageFormatHint::Name(format!("{img_type:?}"))),
+                    UnsupportedErrorKind::Format(ImageFormatHint::Name(format!("{target_type:?}"))),
                 ),
             ))?,
         };

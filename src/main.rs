@@ -28,7 +28,8 @@ async fn main() -> Result<(), std::io::Error> {
     let app = Route::new()
         .at("/hello", get(helloworld))
         .at("/api/resizefree", post(resize_free))
-        .at("/api/resize", post(resize).with(Auth))
+        // .at("/api/resize", post(resize).with(Auth))
+        .at("/api/resize", post(resize))
         .with(CatchPanic::new());
 
     Server::new(TcpListener::bind("0.0.0.0:3001"))
