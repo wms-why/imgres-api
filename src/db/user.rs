@@ -1,9 +1,9 @@
 use super::get_pool;
 
+use anyhow;
 use chrono::{NaiveDateTime, Utc};
 use sea_orm::{entity::prelude::*, Set};
 use serde::{Deserialize, Serialize};
-use anyhow;
 
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Deserialize, Serialize)]
 #[sea_orm(table_name = "users")]
@@ -53,4 +53,29 @@ pub async fn insert(name: &str, email: &str) -> anyhow::Result<Model> {
     let user = u.insert(conn).await;
 
     Ok(user?)
+}
+
+pub async fn get_by_id(id: i32) -> anyhow::Result<Option<Model>> {
+    let conn = get_pool().await;
+
+    let user = Entity::find_by_id(id).one(conn).await?;
+
+    Ok(user)
+}
+
+pub async fn update_credits(id: i32, credits_delta: i64) -> anyhow::Result<()> {
+    let conn = get_pool().await;
+
+    let user: Option<Model> = Entity::find_by_id(id).one(conn).await?;
+
+    // Into ActiveModel
+    let mut user: ActiveModel = user.unwrap().into();
+
+    // Update name attribute
+    user.credit = Set(user.credit.unwrap() + credits_delta);
+
+    // SQL: `UPDATE "fruit" SET "name" = 'Sweet pear' WHERE "id" = 28`
+    user.update(conn).await?;
+
+    Ok(())
 }

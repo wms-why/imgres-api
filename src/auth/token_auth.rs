@@ -1,25 +1,38 @@
-use google_oauth::GooglePayload;
 use poem::{
     web::headers::{authorization::Bearer, Authorization, HeaderMapExt},
     Endpoint, IntoResponse, Request, Response, Result,
 };
-use std::sync::Arc;
 use tracing::{debug, error};
-use anyhow;
 
-use crate::db::user::{self, Model};
+use crate::{
+    api::login::{decode_from_token, Claims},
+    db::user,
+};
+
+use super::check_login_error;
 
 pub struct TokenAuth<E>(pub E);
 
 impl<E: Endpoint> Endpoint for TokenAuth<E> {
     type Output = Response;
 
-    async fn call(&self, req: Request) -> Result<Self::Output> {
+    async fn call(&self, mut req: Request) -> Result<Self::Output> {
         let authorization = req.headers().typed_get::<Authorization<Bearer>>();
 
-        if authorization.is_some() {
-            
+        if authorization.is_none() {
+            return Ok(check_login_error());
         }
+
+        let authorization = authorization.unwrap();
+
+        let claims = decode_from_token(authorization.token());
+        if claims.is_err() {
+            return Ok(check_login_error());
+        }
+
+        let claims = claims.unwrap();
+
+        set_auth_claims(&mut req, claims);
 
         let res = self.0.call(req).await;
         match res {
@@ -36,36 +49,39 @@ impl<E: Endpoint> Endpoint for TokenAuth<E> {
     }
 }
 
-async fn set_current_user(req: &mut Request, payload: GooglePayload) -> anyhow::Result<()> {
-    debug!(
-        "GooglePayload: {}",
-        serde_json::to_string(&payload)?
-    );
-
-    let email = payload.email.clone().unwrap();
-    let u = user::get_by_email(email.as_ref()).await?;
-
-    if let Some(u) = u {
-        req.set_data(Arc::new(u));
-    } else {
-        let mut name = payload.name;
-
-        if name.is_none() {
-            name = Some("".to_string());
-        }
-        let uu = user::insert(name.unwrap().as_str(), &email).await?;
-        let uu = Arc::new(uu);
-        req.set_data(uu);
-    }
-    anyhow::Ok(())
+fn set_auth_claims(req: &mut Request, claims: Claims) {
+    req.set_data(claims);
 }
 
-pub fn get_current_user(req: &Request) -> Option<&Model> {
-    let u: Option<&Arc<Model>> = req.extensions().get();
+// 无io消耗
+pub fn get_auth_claims(req: &Request) -> Option<&Claims> {
+    let u: Option<&Claims> = req.extensions().get();
 
     u?;
 
     let u = u.unwrap();
 
-    Some(u.as_ref())
+    Some(u)
+}
+
+
+// 消耗一次db io
+pub async fn get_user(req: &mut Request) -> Option<user::Model> {
+    let u: Option<&user::Model> = req.extensions().get();
+
+    if u.is_some() {
+        return u.cloned();
+    }
+
+    let c = get_auth_claims(req)?;
+
+    let u = user::get_by_id(c.user_id).await;
+
+    match u {
+        Ok(Some(user_model)) => {
+            req.extensions_mut().insert(user_model.clone());
+            Some(user_model)
+        },
+        _ => None,
+    }
 }

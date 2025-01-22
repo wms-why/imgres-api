@@ -13,9 +13,14 @@ use uuid::Uuid;
 use zip::write::SimpleFileOptions;
 
 use crate::{
+    auth::token_auth::get_user,
     core::{ai, algorithm, transform},
-    db::file::upload_temp,
+    db::{
+        file::upload_temp,
+        user::{self, update_credits},
+    },
 };
+
 struct ImageResizeParams {
     image: DynamicImage,
     width: u32,
@@ -170,7 +175,7 @@ pub async fn resize_free(mut multipart: Multipart) -> Response {
         }
     }
 
-    let r = handle(&params).await;
+    let r = handle(&params, None).await;
 
     if let Err(e) = r {
         error!("{:?}", e);
@@ -183,7 +188,7 @@ pub async fn resize_free(mut multipart: Multipart) -> Response {
 }
 
 #[handler]
-pub async fn resize(mut multipart: Multipart, _req: &Request) -> Response {
+pub async fn resize(mut multipart: Multipart, req: &Request) -> Response {
     let params = ImageResizeParams::from_multipart(multipart).await;
 
     if params.is_err() {
@@ -208,7 +213,9 @@ pub async fn resize(mut multipart: Multipart, _req: &Request) -> Response {
     //     }
     // }
 
-    let r = handle(&params).await;
+    let user = get_user(req).await;
+
+    let r = handle(&params, user).await;
 
     if let Err(e) = r {
         error!("{:?}", e);
@@ -219,7 +226,7 @@ pub async fn resize(mut multipart: Multipart, _req: &Request) -> Response {
 
     r.unwrap()
 }
-async fn handle(params: &ImageResizeParams) -> Result<Response> {
+async fn handle(params: &ImageResizeParams, user: Option<user::Model>) -> Result<Response> {
     let temp_name = format!("{}.zip", Uuid::new_v4());
 
     let path: &Path = std::path::Path::new(&temp_name);
@@ -237,6 +244,15 @@ async fn handle(params: &ImageResizeParams) -> Result<Response> {
 
     let mut img_url: Option<String> = Option::None;
 
+    let mut use_ai_count = 0;
+
+    for ele in &params.sizes {
+        if ele.use_ai {
+            use_ai_count += 1;
+        }
+    }
+
+    if use_ai_count > 0 {}
     for ele in &params.sizes {
         let buf;
 
@@ -281,6 +297,11 @@ async fn handle(params: &ImageResizeParams) -> Result<Response> {
     let mut file = std::fs::File::open(path)?;
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer)?;
+
+    if user.is_some() && use_ai_count > 0 {
+        let user = user.unwrap();
+        let _ = update_credits(user.user_id, -use_ai_count).await;
+    }
 
     Ok(Response::builder()
         .content_type("application/octet-stream")

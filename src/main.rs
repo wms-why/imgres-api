@@ -2,15 +2,24 @@ mod api;
 mod auth;
 mod core;
 mod db;
+mod extractor;
 
-use api::resize::{resize, resize_free};
-use auth::Auth;
+use api::{
+    login::login,
+    resize::{resize, resize_free},
+};
+use auth::{token_auth::get_auth_claims, Auth};
 use poem::{
     get, handler, listener::TcpListener, middleware::CatchPanic, post, EndpointExt, IntoResponse,
-    Result, Route, Server,
+    Request, Result, Route, Server,
 };
 #[handler]
-fn helloworld() -> impl IntoResponse {
+fn helloworld(req: &Request) -> impl IntoResponse {
+    let u = get_auth_claims(req);
+
+    if let Some(u) = u {
+        println!("user: {:?}", u);
+    }
     "hello world".into_response()
 }
 
@@ -26,10 +35,11 @@ async fn main() -> Result<(), std::io::Error> {
     tracing_subscriber::fmt::init();
 
     let app = Route::new()
-        .at("/hello", get(helloworld))
+        .at("/api/hello", get(helloworld))
         .at("/api/resizefree", post(resize_free))
-        // .at("/api/resize", post(resize).with(Auth))
-        .at("/api/resize", post(resize))
+        .at("/api/resize", post(resize).with(Auth))
+        // .at("/api/resize", post(resize))
+        .at("/api/login", get(login))
         .with(CatchPanic::new());
 
     Server::new(TcpListener::bind("0.0.0.0:3001"))

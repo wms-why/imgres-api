@@ -1,6 +1,6 @@
 pub mod token_auth;
 
-use poem::{Endpoint, Middleware};
+use poem::{http::StatusCode, Endpoint, Middleware, Response};
 
 pub struct Auth;
 
@@ -10,4 +10,10 @@ impl<E: Endpoint> Middleware<E> for Auth {
     fn transform(&self, ep: E) -> Self::Output {
         token_auth::TokenAuth(ep)
     }
+}
+
+fn check_login_error() -> Response {
+    Response::builder()
+        .status(StatusCode::UNAUTHORIZED)
+        .finish()
 }
