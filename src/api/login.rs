@@ -20,10 +20,10 @@ pub struct Claims {
     pub email: String,
     pub picture: Option<String>,
     // 秒
-    exp: i64,
+    pub exp: i64,
 }
 impl Claims {
-    fn new(user_id: i32, username: String, email: String, picture: Option<String>) -> Self {
+    pub fn new(user_id: i32, username: String, email: String, picture: Option<String>) -> Self {
         // 当前秒数
         let exp = std::time::SystemTime::now()
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -119,19 +119,20 @@ struct LoginParams {
 pub async fn login(Query(LoginParams { token }): Query<LoginParams>) -> Response {
     let r = get_client().validate_id_token(&token).await;
     if r.is_err() {
-        error!("google validate_id_token error: {}", r.err().unwrap());
+        let body = format!("google validate_id_token error: {}", r.err().unwrap());
+        error!(body);
         return Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .finish();
+            .status(StatusCode::BAD_REQUEST)
+            .body(body);
     }
 
     let r = r.unwrap();
 
-    if !validate_google_payload(&r) {
-        error!("google GooglePayload validate error: {:?}", r);
+    if let Err(e) = validate_google_payload(&r) {
+        error!("google account validate error: {:?}", r);
         return Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .finish();
+            .status(StatusCode::BAD_REQUEST)
+            .body(e.to_string());
     }
 
     let email = r.email.unwrap();
@@ -144,7 +145,7 @@ pub async fn login(Query(LoginParams { token }): Query<LoginParams>) -> Response
         error!("get user by email error: {}", u.err().unwrap());
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .finish();
+            .body("db error");
     }
 
     let u = u.unwrap();
@@ -157,7 +158,7 @@ pub async fn login(Query(LoginParams { token }): Query<LoginParams>) -> Response
             error!("insert user error: {}", insert_r.err().unwrap());
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .finish();
+                .body("db error");
         } else {
             user = insert_r.unwrap();
         }
@@ -170,6 +171,10 @@ pub async fn login(Query(LoginParams { token }): Query<LoginParams>) -> Response
     Json(LoginResp::from(&meta, &user)).into_response()
 }
 
-fn validate_google_payload(payload: &GooglePayload) -> bool {
-    payload.email.is_some() && payload.name.is_some()
+fn validate_google_payload(payload: &GooglePayload) -> Result<()> {
+    if payload.email.is_some() && payload.name.is_some() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!("google payload lack email or name"))
+    }
 }

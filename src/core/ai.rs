@@ -31,8 +31,6 @@ fn get_model_version() -> String {
     env::var("REPLICATE_MODEL_VERSION").unwrap()
 }
 
-pub struct AiScaleUp;
-
 ///
 /// nightmareai/real-esrgan
 ///
@@ -48,88 +46,85 @@ pub struct AiScaleUp;
 ///   }
 /// }' \
 /// https://api.replicate.com/v1/predictions
-impl AiScaleUp {
-    pub async fn resize(self, img_src: &str, scale_factor: f32) -> Result<Bytes> {
-        let client = CLIENT.get_or_init(get_client);
-        let body = ReqBody::new(img_src, scale_factor);
-        let r = client
-            .post("https://api.replicate.com/v1/predictions")
-            .headers(get_headers())
-            .body(serde_json::to_string(&body)?);
+pub async fn resize(img_src: &str, scale_factor: f32) -> Result<Bytes> {
+    let client = CLIENT.get_or_init(get_client);
+    let body = ReqBody::new(img_src, scale_factor);
+    let r = client
+        .post("https://api.replicate.com/v1/predictions")
+        .headers(get_headers())
+        .body(serde_json::to_string(&body)?);
 
-        let r = r.send().await?;
-        let status = r.status().as_u16();
-        let text = r.text().await?;
+    let r = r.send().await?;
+    let status = r.status().as_u16();
+    let text = r.text().await?;
 
-        if (200..300).contains(&status) {
-            let result = serde_json::from_str::<RespBody>(&text);
+    if (200..300).contains(&status) {
+        let result = serde_json::from_str::<RespBody>(&text);
 
-            if result.is_err() {
-                return Err(anyhow::anyhow!("serde_json error, text = {}", text));
+        if result.is_err() {
+            return Err(anyhow::anyhow!("serde_json error, text = {}", text));
+        }
+
+        let mut result = result.unwrap();
+
+        let mut retry_count = 0;
+        let retry_max = 20;
+        while result.output.is_none() {
+            if retry_count == retry_max {
+                return Err(anyhow::anyhow!("retry count full, replicate failed"));
             }
 
-            let mut result = result.unwrap();
+            time::sleep(Duration::from_secs(2)).await;
 
-            let mut retry_count = 0;
-            let retry_max = 20;
-            while result.output.is_none() {
-                if retry_count == retry_max {
-                    return Err(anyhow::anyhow!("retry count full, replicate failed"));
-                }
-
-                time::sleep(Duration::from_secs(2)).await;
-
-                let r = client
-                    .get(result.urls.get.clone())
-                    .headers(get_headers())
-                    .send()
-                    .await?;
-
-                let status = r.status().as_u16();
-                let text = r.text().await?;
-
-                if (200..300).contains(&status) {
-                    let r = serde_json::from_str::<RespBody>(&text);
-
-                    if r.is_err() {
-                        let text = format!("serde_json error, text = {}", text);
-                        return Err(anyhow::anyhow!(text));
-                    }
-
-                    result = r.unwrap();
-
-                    if result.failed() {
-                        return Err(anyhow::anyhow!("urls.get response with status failed"));
-                    }
-                } else {
-                    let m = format!("urls.get request status: {} response: {}", status, text);
-                    return Err(anyhow::anyhow!("{}", m));
-                }
-
-                retry_count += 1;
-            }
-
-            let resp = client
-                .get(result.output.as_ref().unwrap())
+            let r = client
+                .get(result.urls.get.clone())
                 .headers(get_headers())
                 .send()
                 .await?;
 
-            if resp.status() == StatusCode::OK {
-                Ok(resp.bytes().await?)
+            let status = r.status().as_u16();
+            let text = r.text().await?;
+
+            if (200..300).contains(&status) {
+                let r = serde_json::from_str::<RespBody>(&text);
+
+                if r.is_err() {
+                    let text = format!("serde_json error, text = {}", text);
+                    return Err(anyhow::anyhow!(text));
+                }
+
+                result = r.unwrap();
+
+                if result.failed() {
+                    return Err(anyhow::anyhow!("urls.get response with status failed"));
+                }
             } else {
-                Err(anyhow::anyhow!("get file from replicate failed"))
+                let m = format!("urls.get request status: {} response: {}", status, text);
+                return Err(anyhow::anyhow!("{}", m));
             }
-        } else {
-            Err(anyhow::anyhow!(
-                "post replicate status: {} response: {}",
-                status,
-                text
-            ))
+
+            retry_count += 1;
         }
+
+        let resp = client
+            .get(result.output.as_ref().unwrap())
+            .headers(get_headers())
+            .send()
+            .await?;
+
+        if resp.status() == StatusCode::OK {
+            Ok(resp.bytes().await?)
+        } else {
+            Err(anyhow::anyhow!("get file from replicate failed"))
+        }
+    } else {
+        Err(anyhow::anyhow!(
+            "post replicate status: {} response: {}",
+            status,
+            text
+        ))
     }
 }
-
 #[derive(Serialize, Debug)]
 struct ReqBody<'a> {
     version: &'a str,

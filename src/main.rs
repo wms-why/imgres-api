@@ -1,14 +1,14 @@
 mod api;
-mod auth;
 mod core;
 mod db;
 mod extractor;
+mod middleware;
 
 use api::{
     login::login,
     resize::{resize, resize_free},
 };
-use auth::{token_auth::get_auth_claims, Auth};
+use middleware::{auth::get_auth_claims, AuthMiddleware};
 use poem::{
     get, handler, listener::TcpListener, middleware::CatchPanic, post, EndpointExt, IntoResponse,
     Request, Result, Route, Server,
@@ -37,7 +37,7 @@ async fn main() -> Result<(), std::io::Error> {
     let app = Route::new()
         .at("/api/hello", get(helloworld))
         .at("/api/resizefree", post(resize_free))
-        .at("/api/resize", post(resize).with(Auth))
+        .at("/api/resize", post(resize).with(AuthMiddleware))
         // .at("/api/resize", post(resize))
         .at("/api/login", get(login))
         .with(CatchPanic::new());

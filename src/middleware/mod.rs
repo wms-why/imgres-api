@@ -1,14 +1,14 @@
-pub mod token_auth;
+pub mod auth;
 
 use poem::{http::StatusCode, Endpoint, Middleware, Response};
 
-pub struct Auth;
+pub struct AuthMiddleware;
 
-impl<E: Endpoint> Middleware<E> for Auth {
-    type Output = token_auth::TokenAuth<E>;
+impl<E: Endpoint> Middleware<E> for AuthMiddleware {
+    type Output = auth::AuthorizationCheck<E>;
 
     fn transform(&self, ep: E) -> Self::Output {
-        token_auth::TokenAuth(ep)
+        auth::AuthorizationCheck(ep)
     }
 }
 

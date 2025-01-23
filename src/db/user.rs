@@ -63,13 +63,11 @@ pub async fn get_by_id(id: i32) -> anyhow::Result<Option<Model>> {
     Ok(user)
 }
 
-pub async fn update_credits(id: i32, credits_delta: i64) -> anyhow::Result<()> {
+pub async fn update_credits(user: Model, credits_delta: i64) -> anyhow::Result<()> {
     let conn = get_pool().await;
 
-    let user: Option<Model> = Entity::find_by_id(id).one(conn).await?;
-
     // Into ActiveModel
-    let mut user: ActiveModel = user.unwrap().into();
+    let mut user: ActiveModel = user.into();
 
     // Update name attribute
     user.credit = Set(user.credit.unwrap() + credits_delta);

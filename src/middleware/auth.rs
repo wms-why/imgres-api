@@ -4,16 +4,13 @@ use poem::{
 };
 use tracing::{debug, error};
 
-use crate::{
-    api::login::{decode_from_token, Claims},
-    db::user,
-};
+use crate::api::login::{decode_from_token, Claims};
 
 use super::check_login_error;
 
-pub struct TokenAuth<E>(pub E);
+pub struct AuthorizationCheck<E>(pub E);
 
-impl<E: Endpoint> Endpoint for TokenAuth<E> {
+impl<E: Endpoint> Endpoint for AuthorizationCheck<E> {
     type Output = Response;
 
     async fn call(&self, mut req: Request) -> Result<Self::Output> {
@@ -62,26 +59,4 @@ pub fn get_auth_claims(req: &Request) -> Option<&Claims> {
     let u = u.unwrap();
 
     Some(u)
-}
-
-
-// 消耗一次db io
-pub async fn get_user(req: &mut Request) -> Option<user::Model> {
-    let u: Option<&user::Model> = req.extensions().get();
-
-    if u.is_some() {
-        return u.cloned();
-    }
-
-    let c = get_auth_claims(req)?;
-
-    let u = user::get_by_id(c.user_id).await;
-
-    match u {
-        Ok(Some(user_model)) => {
-            req.extensions_mut().insert(user_model.clone());
-            Some(user_model)
-        },
-        _ => None,
-    }
 }
