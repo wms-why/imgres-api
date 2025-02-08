@@ -1,15 +1,16 @@
 use poem::{http::StatusCode, Error, FromRequest, Request, RequestBody, Result};
+use tracing::debug;
 
-use crate::{api::login::Claims, db::user, middleware::auth::get_auth_claims};
+use crate::{db::user, middleware::auth::get_auth_claims};
 
 pub struct AuthUser {
-    pub user: user::Model,
+    pub user: user::User,
 }
 
 // Implements a token extractor
 impl<'a> FromRequest<'a> for AuthUser {
     async fn from_request(req: &'a Request, _body: &mut RequestBody) -> Result<Self> {
-        let claims: Option<&Claims> = get_auth_claims(req);
+        let claims = get_auth_claims(req);
 
         if claims.is_none() {
             return Err(Error::from_string(
@@ -20,12 +21,20 @@ impl<'a> FromRequest<'a> for AuthUser {
 
         let c = claims.unwrap();
 
-        let u = user::get_by_id(c.user_id).await;
+        debug!("claims: {:?}", c);
+
+        let u = user::get_by_email(&c.email).await;
+
+        debug!("user: {:?}", u);
 
         match u {
             Ok(Some(user_model)) => Ok(AuthUser { user: user_model }),
+            Ok(None) => Err(Error::from_string(
+                "user not found".to_string(),
+                StatusCode::UNAUTHORIZED,
+            )),
             _ => Err(Error::from_string(
-                "user id invalid or db connection error".to_string(),
+                "email invalid or db connection error".to_string(),
                 StatusCode::BAD_REQUEST,
             )),
         }

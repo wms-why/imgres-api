@@ -14,17 +14,20 @@ static CLIENT: OnceLock<Client> = OnceLock::new();
 static MODEL_VERSION: OnceLock<String> = OnceLock::new();
 
 fn get_client() -> Client {
-    reqwest::ClientBuilder::new().build().unwrap()
-}
 
-fn get_headers() -> HeaderMap {
     let token = env::var("REPLICATE_API_TOKEN").unwrap();
     let mut headers = HashMap::with_capacity(3);
     headers.insert("Authorization".to_string(), format!("Bearer {}", token));
     headers.insert("content-type".to_string(), "application/json".to_string());
     headers.insert("Prefer".to_string(), "wait".to_string());
 
-    (&headers).try_into().unwrap()
+    let map = (&headers).try_into().unwrap();
+
+    reqwest::ClientBuilder::new()
+    .timeout(Duration::from_secs(20))
+    .connect_timeout(Duration::from_secs(10))
+    .default_headers(map)
+    .build().unwrap()
 }
 
 fn get_model_version() -> String {
@@ -51,7 +54,6 @@ pub async fn resize(img_src: &str, scale_factor: f32) -> Result<Bytes> {
     let body = ReqBody::new(img_src, scale_factor);
     let r = client
         .post("https://api.replicate.com/v1/predictions")
-        .headers(get_headers())
         .body(serde_json::to_string(&body)?);
 
     let r = r.send().await?;
@@ -78,7 +80,6 @@ pub async fn resize(img_src: &str, scale_factor: f32) -> Result<Bytes> {
 
             let r = client
                 .get(result.urls.get.clone())
-                .headers(get_headers())
                 .send()
                 .await?;
 
@@ -108,7 +109,6 @@ pub async fn resize(img_src: &str, scale_factor: f32) -> Result<Bytes> {
 
         let resp = client
             .get(result.output.as_ref().unwrap())
-            .headers(get_headers())
             .send()
             .await?;
 

@@ -39,8 +39,8 @@ async fn main() -> Result<(), std::io::Error> {
         .at("/api/resizefree", post(resize_free))
         .at("/api/resize", post(resize).with(AuthMiddleware))
         // .at("/api/resize", post(resize))
-        .at("/api/login", get(login))
-        .with(CatchPanic::new());
+        .at("/api/login", get(login));
+    // .with(CatchPanic::new());
 
     Server::new(TcpListener::bind("0.0.0.0:3001"))
         .run(app)

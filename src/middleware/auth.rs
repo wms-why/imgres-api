@@ -13,23 +13,11 @@ pub struct AuthorizationCheck<E>(pub E);
 impl<E: Endpoint> Endpoint for AuthorizationCheck<E> {
     type Output = Response;
 
-    async fn call(&self, mut req: Request) -> Result<Self::Output> {
-        let authorization = req.headers().typed_get::<Authorization<Bearer>>();
-
-        if authorization.is_none() {
+    async fn call(&self, req: Request) -> Result<Self::Output> {
+        let claims = get_auth_claims(&req);
+        if claims.is_none() {
             return Ok(check_login_error());
         }
-
-        let authorization = authorization.unwrap();
-
-        let claims = decode_from_token(authorization.token());
-        if claims.is_err() {
-            return Ok(check_login_error());
-        }
-
-        let claims = claims.unwrap();
-
-        set_auth_claims(&mut req, claims);
 
         let res = self.0.call(req).await;
         match res {
@@ -46,17 +34,22 @@ impl<E: Endpoint> Endpoint for AuthorizationCheck<E> {
     }
 }
 
-fn set_auth_claims(req: &mut Request, claims: Claims) {
-    req.set_data(claims);
-}
-
 // 无io消耗
-pub fn get_auth_claims(req: &Request) -> Option<&Claims> {
-    let u: Option<&Claims> = req.extensions().get();
+pub fn get_auth_claims(req: &Request) -> Option<Box<Claims>> {
+    let authorization = req.headers().typed_get::<Authorization<Bearer>>();
 
-    u?;
+    if authorization.is_none() {
+        return None;
+    }
 
-    let u = u.unwrap();
+    let authorization = authorization.unwrap();
 
-    Some(u)
+    let claims = decode_from_token(authorization.token());
+    if claims.is_err() {
+        return None;
+    }
+
+    let claims = claims.unwrap();
+
+    Some(Box::new(claims))
 }

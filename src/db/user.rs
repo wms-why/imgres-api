@@ -1,79 +1,71 @@
-use super::get_pool;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
-use anyhow;
-use chrono::{NaiveDateTime, Utc};
-use sea_orm::{entity::prelude::*, Set};
+use super::kv::{self, KvReqBody};
+
+use anyhow::{self};
+use chrono::{DateTime, Local};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Deserialize, Serialize)]
-#[sea_orm(table_name = "users")]
-pub struct Model {
-    #[sea_orm(primary_key)]
-    pub id: i32,
-    pub name: String,
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct User {
     pub email: String,
+    pub name: String,
     pub credit: i64,
-    pub ctime: NaiveDateTime,
+    pub ctime: DateTime<Local>,
     pub reg_from: String,
 }
 
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+fn gen_key(email: &str) -> String {
+    let mut s = DefaultHasher::new();
+    email.hash(&mut s);
+    format!("user_{}", s.finish())
+}
 
-impl ActiveModelBehavior for ActiveModel {}
-
-impl ActiveModel {
-    pub fn new_from(name: &str, email: &str) -> Self {
-        ActiveModel {
-            id: Set(0i32),
-            name: Set(name.to_string()),
-            email: Set(email.to_string()),
-            credit: Set(10),
-            ctime: Set(Utc::now().naive_utc()),
-            reg_from: Set("google".to_string()),
+impl User {
+    pub fn new(name: &str, email: &str) -> Self {
+        User {
+            email: email.to_string(),
+            name: name.to_string(),
+            credit: 10,
+            ctime: Local::now(),
+            reg_from: "google".to_string(),
         }
     }
 }
 
-pub async fn get_by_email(email: &str) -> anyhow::Result<Option<Model>> {
-    let conn = get_pool().await;
+pub async fn get_by_email(email: &str) -> anyhow::Result<Option<User>> {
+    let key = gen_key(email);
 
-    let user = Entity::find()
-        .filter(Column::Email.eq(email))
-        .one(conn)
-        .await?;
+    let user_info = kv::get(&key).await?;
+
+    if user_info.is_none() {
+        return Ok(None);
+    }
+
+    let user_info = user_info.unwrap();
+    let user_info = serde_json::from_str::<User>(&user_info)?;
+
+    Ok(Some(user_info))
+}
+
+pub async fn insert(name: &str, email: &str) -> anyhow::Result<User> {
+    let user = User::new(name, email);
+
+    let key = gen_key(email);
+
+    let body = KvReqBody::new(key.clone(), serde_json::to_string(&user)?, None);
+    kv::insert(&body).await?;
 
     Ok(user)
 }
 
-pub async fn insert(name: &str, email: &str) -> anyhow::Result<Model> {
-    let u = ActiveModel::new_from(name, email);
-    let conn = get_pool().await;
+pub async fn update_credits(user: &mut User, credits_delta: i64) -> anyhow::Result<()> {
+    user.credit += credits_delta;
 
-    let user = u.insert(conn).await;
+    let key = gen_key(&user.email).to_string();
 
-    Ok(user?)
-}
+    let body = KvReqBody::new(key.clone(), serde_json::to_string(&user)?, None);
+    kv::insert(&body).await?;
 
-pub async fn get_by_id(id: i32) -> anyhow::Result<Option<Model>> {
-    let conn = get_pool().await;
-
-    let user = Entity::find_by_id(id).one(conn).await?;
-
-    Ok(user)
-}
-
-pub async fn update_credits(user: Model, credits_delta: i64) -> anyhow::Result<()> {
-    let conn = get_pool().await;
-
-    // Into ActiveModel
-    let mut user: ActiveModel = user.into();
-
-    // Update name attribute
-    user.credit = Set(user.credit.unwrap() + credits_delta);
-
-    // SQL: `UPDATE "fruit" SET "name" = 'Sweet pear' WHERE "id" = 28`
-    user.update(conn).await?;
-
-    Ok(())
+    anyhow::Ok(())
 }

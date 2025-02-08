@@ -159,8 +159,8 @@ async fn handle(params: &ImageResizeParams, user: Option<AuthUser>) -> Result<Re
     file.read_to_end(&mut buffer)?;
 
     if user.is_some() && use_ai_count > 0 {
-        let user = user.unwrap();
-        update_credits(user.user, -use_ai_count).await?;
+        let mut user = user.unwrap();
+        update_credits(&mut user.user, -use_ai_count).await?;
     }
 
     Ok(Response::builder()
